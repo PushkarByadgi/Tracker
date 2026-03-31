@@ -179,22 +179,35 @@
     });
   }
 
+  const TIMEOUT_MS = 2 * 60 * 1000;
   const vehicleData = {};
+
+  function removeVehicle(id) {
+    if (markers[id]) { map.removeLayer(markers[id]); delete markers[id]; }
+    delete vehicleData[id];
+  }
+
+  function pruneStale() {
+    const now = Date.now();
+    Object.keys(vehicleData).forEach(id => {
+      const ts = vehicleData[id].updatedAt;
+      if (ts && (now - ts) > TIMEOUT_MS) removeVehicle(id);
+    });
+    updatePanel(vehicleData);
+  }
 
   onValue(ref(db, 'vehicles'), (snapshot) => {
     const data = snapshot.val() || {};
 
-    // remove deleted vehicles
     Object.keys(vehicleData).forEach(id => {
-      if (!data[id] && markers[id]) {
-        map.removeLayer(markers[id]);
-        delete markers[id];
-        delete vehicleData[id];
-      }
+      if (!data[id]) removeVehicle(id);
     });
 
     const latLngs = [];
     Object.entries(data).forEach(([id, v]) => {
+      const age = v.updatedAt ? Date.now() - v.updatedAt : Infinity;
+      if (age > TIMEOUT_MS) return;
+
       vehicleData[id] = v;
       latLngs.push([v.lat, v.lng]);
 
@@ -206,7 +219,6 @@
       markers[id].setIcon(makeIcon(id));
     });
 
-    // fly to bounds on first data load
     if (firstLoad && latLngs.length > 0) {
       firstLoad = false;
       if (latLngs.length === 1) {
@@ -219,8 +231,7 @@
     updatePanel(vehicleData);
   });
 
-  // refresh timestamps every 10s
-  setInterval(() => updatePanel(vehicleData), 10000);
+  setInterval(() => pruneStale(), 15000);
 </script>
 </body>
 </html>
