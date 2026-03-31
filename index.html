@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Share Location</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'DM Sans', sans-serif;
+    background: #0f1117;
+    color: #e8e6df;
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+  }
+  .card {
+    background: #1a1d27;
+    border: 1px solid #2a2d3a;
+    border-radius: 16px;
+    padding: 36px 32px;
+    width: 100%;
+    max-width: 380px;
+  }
+  .dot {
+    width: 10px; height: 10px;
+    border-radius: 50%;
+    background: #444;
+    display: inline-block;
+    margin-right: 8px;
+    transition: background 0.3s;
+  }
+  .dot.active { background: #22c55e; box-shadow: 0 0 8px #22c55e88; }
+  .dot.error { background: #ef4444; }
+  h1 {
+    font-size: 20px;
+    font-weight: 600;
+    letter-spacing: -0.3px;
+    margin-bottom: 6px;
+    color: #f0ede6;
+  }
+  .subtitle {
+    font-size: 13px;
+    color: #666;
+    margin-bottom: 28px;
+  }
+  label {
+    font-size: 12px;
+    color: #888;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    display: block;
+    margin-bottom: 8px;
+  }
+  input[type="text"] {
+    width: 100%;
+    background: #0f1117;
+    border: 1px solid #2a2d3a;
+    border-radius: 10px;
+    padding: 12px 14px;
+    font-size: 15px;
+    color: #e8e6df;
+    font-family: inherit;
+    outline: none;
+    margin-bottom: 20px;
+    transition: border-color 0.2s;
+  }
+  input[type="text"]:focus { border-color: #4f6ef7; }
+  input[type="text"]:disabled { opacity: 0.4; }
+  button {
+    width: 100%;
+    padding: 13px;
+    border-radius: 10px;
+    border: none;
+    font-size: 15px;
+    font-family: inherit;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  button.start {
+    background: #4f6ef7;
+    color: #fff;
+  }
+  button.start:hover { background: #3b5ce4; }
+  button.stop {
+    background: #1a1d27;
+    color: #ef4444;
+    border: 1px solid #ef444455;
+  }
+  button.stop:hover { background: #ef444415; }
+  button:disabled { opacity: 0.4; cursor: not-allowed; }
+  .status-row {
+    display: flex;
+    align-items: center;
+    margin-top: 20px;
+    font-size: 13px;
+    color: #888;
+    min-height: 20px;
+  }
+  .coords {
+    margin-top: 12px;
+    font-size: 12px;
+    color: #555;
+    font-family: 'Courier New', monospace;
+    min-height: 16px;
+  }
+  .ping {
+    margin-left: auto;
+    font-size: 12px;
+    color: #555;
+  }
+</style>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;600&display=swap" rel="stylesheet">
+</head>
+<body>
+
+<div class="card">
+  <h1>Share Location</h1>
+  <p class="subtitle">Driver app — sends GPS every 5 seconds</p>
+
+  <label for="vehicleId">Vehicle ID</label>
+  <input type="text" id="vehicleId" placeholder="e.g. Bus-01, RK-Rickshaw" maxlength="30" />
+
+  <button class="start" id="mainBtn" onclick="toggle()">Start Sharing</button>
+
+  <div class="status-row">
+    <span class="dot" id="dot"></span>
+    <span id="statusText">Not sharing</span>
+    <span class="ping" id="pingText"></span>
+  </div>
+  <div class="coords" id="coordsText"></div>
+</div>
+
+<!-- Firebase -->
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+  import { getDatabase, ref, set, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
+
+  // ── PASTE YOUR FIREBASE CONFIG HERE ──────────────────────────────
+  const firebaseConfig = {
+    apiKey: "AIzaSyDCOYJvjvUEhqrDaa55p9aSa-KbZB_qlSk",
+    authDomain: "tracker-fa9f5.firebaseapp.com",
+    databaseURL: "https://tracker-fa9f5-default-rtdb.asia-southeast1.firebasedatabase.app",
+    projectId: "tracker-fa9f5",
+    storageBucket: "tracker-fa9f5.firebasestorage.app",
+    messagingSenderId: "981774834565",
+    appId: "1:981774834565:web:332a62d6de96d9239302ec"
+  };
+  // ─────────────────────────────────────────────────────────────────
+
+  const app = initializeApp(firebaseConfig);
+  const db = getDatabase(app);
+
+  let interval = null;
+  let sharing = false;
+  let pingCount = 0;
+
+  window.toggle = function () {
+    if (!sharing) startSharing();
+    else stopSharing();
+  };
+
+  function startSharing() {
+    const id = document.getElementById('vehicleId').value.trim();
+    if (!id) { alert('Enter a vehicle ID first.'); return; }
+
+    if (!navigator.geolocation) { alert('Geolocation not supported on this device.'); return; }
+
+    sharing = true;
+    document.getElementById('vehicleId').disabled = true;
+    document.getElementById('mainBtn').textContent = 'Stop Sharing';
+    document.getElementById('mainBtn').className = 'stop';
+    document.getElementById('dot').className = 'dot active';
+    document.getElementById('statusText').textContent = 'Getting location…';
+
+    sendLocation(id);
+    interval = setInterval(() => sendLocation(id), 5000);
+  }
+
+  function stopSharing() {
+    sharing = false;
+    clearInterval(interval);
+    document.getElementById('vehicleId').disabled = false;
+    document.getElementById('mainBtn').textContent = 'Start Sharing';
+    document.getElementById('mainBtn').className = 'start';
+    document.getElementById('dot').className = 'dot';
+    document.getElementById('statusText').textContent = 'Stopped';
+    document.getElementById('coordsText').textContent = '';
+    document.getElementById('pingText').textContent = '';
+    pingCount = 0;
+  }
+
+  function sendLocation(id) {
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const { latitude, longitude, accuracy } = pos.coords;
+        const vehicleRef = ref(db, 'vehicles/' + id);
+        set(vehicleRef, {
+          lat: latitude,
+          lng: longitude,
+          accuracy: Math.round(accuracy),
+          updatedAt: serverTimestamp(),
+          id: id
+        });
+        pingCount++;
+        document.getElementById('statusText').textContent = 'Sharing live';
+        document.getElementById('coordsText').textContent = `${latitude.toFixed(5)}, ${longitude.toFixed(5)}  ±${Math.round(accuracy)}m`;
+        document.getElementById('pingText').textContent = `${pingCount} ping${pingCount > 1 ? 's' : ''}`;
+      },
+      (err) => {
+        document.getElementById('dot').className = 'dot error';
+        document.getElementById('statusText').textContent = 'Location error: ' + err.message;
+      },
+      { enableHighAccuracy: true, timeout: 8000, maximumAge: 0 }
+    );
+  }
+</script>
+</body>
+</html>
